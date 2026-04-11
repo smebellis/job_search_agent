@@ -1,0 +1,71 @@
+Navigate to Connectors in settings
+
+Install the following connectors:
+
+Apify MCP Server
+Vibe Prospecting
+
+----------------------------------------------------------------------------------------------------
+
+I have attached my resume. Find jobs that match my resume skills and experience in Denver
+Match the jobs against my CV and score each role out of 10 based on fit (role, responsibilities, skills, experience, seniority). First use Claude to search for jobs across google posted in the last 24 hours and then use apify to collect jobs posted from LinkedIn using a LinkedIn scraper in the last 24 hours. And combine both searches.
+Output ONLY a table with the following columns:
+# Role Company Posted Source Fit Score Apply Link
+Rules:
+* Only include jobs posted in the last 24 hours
+* Sort by: 1) Most recently posted, 2) Highest fit score
+* Limit to top 10 jobs
+* Be strict with scoring (no inflated scores)
+* Just return the jobs with a score above 7
+
+-----------------------------------------------------------------------------------------------------
+
+I’m applying for a job (I will provide the job link). Use Apify and Vibe Prospecting to find relevant LinkedIn profiles of people I should reach out to in 3 categories:
+1. Recruiters (internal talent team)
+2. Hiring Manager (likely person I’d report to)
+3. Peers (same role/function, similar seniority)
+STRICT RULES:
+* Only include people CURRENTLY working at this company
+* Exclude external recruiters or agencies
+* Only include people with a relevance score ≥ 7/10
+Prioritise:
+* Same location as the job
+* Same team/function
+* Closest seniority match
+Score each person out of 10 based on:
+* Relevance to the role
+* Likelihood they influence hiring
+Be strict - do not inflate scores.
+Return ONLY a table:
+| # | Name | Title | Relevance Score | LinkedIn URL | Email | Notes
+
+Additional rules:
+* Include multiple people per category (max 5-8 each)
+* Notes should be less than 100 characters
+* Sort by relevance score (highest first)
+* Only include high-confidence, relevant profiles
+* Use direct LinkedIn profile URLs
+* Return a priority summary for outreach with priority, name, persona and why reach out
+
+---------------------------------------------------------------------------------------
+
+Now write the LinkedIn connection request messages (max 300 characters) for each one. Use the job description to extract key skills and use those for positioning (not generic CV points).
+For EACH person:
+* Analyse their LinkedIn profile
+* Identify 1 SPECIFIC detail (company, role, career move, university, location, etc.)
+* The message must feel unique to them and should NOT work if swapped with someone else
+Rules:
+Hiring Manager & Recruiter:
+* Reference they are hiring (do NOT say I applied)
+* Highlight 1–2 relevant skills from the job description
+* Keep it natural and confident
+* Include a Reslink and make it clear I recorded this video specifically for them: [Reslink URL]
+Peer:
+* DO NOT mention the job or applying
+* MUST reference a specific detail from their profile
+* Focus only on relatability and connection (no generic lines)
+Additional rules:
+* Each message must be under 300 characters
+* Each message must be different in structure and phrasing
+* No generic or vague wording
+* If no strong personalisation detail is found, do NOT generate that message
