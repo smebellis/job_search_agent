@@ -1,7 +1,10 @@
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from os import environ, getenv
 from typing import Any
+
+import anthropic
 
 
 @dataclass
@@ -54,9 +57,36 @@ class PipelineContext:
     job_url: None = None
 
 
-class ClaudeClient(Config):
-    def ask():
-        pass
+class ClaudeClient:
+    def __init__(self, config: Config) -> None:
+        # Store the model name
+        # Create an anthropic.Anthropic instance using the api key
+        self.model = config.model
+        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
 
-    def ask_json():
-        pass
+    def ask(self, system: str, user: str) -> str:
+        # Call self.client.messages.create(...)
+        # Return the text from the first content block
+        response = self.client.messages.create(
+            max_tokens=1024,
+            model=self.model,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+
+        return response.content[0].text
+
+    def ask_json(self, system: str, user: str) -> dict:
+        # Call self.ask() to get the raw text
+        # Strip markdown fences if present
+        # Parse with json.loads() and return
+        raw = self.ask(system, user)
+
+        text = raw.strip()
+
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1])
+
+        data = json.loads(text)
+        return data

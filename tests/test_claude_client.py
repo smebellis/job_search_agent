@@ -1,5 +1,6 @@
 import json
 
+import anthropic
 import pytest
 
 
@@ -18,9 +19,6 @@ def test_claude_client_ask_returns_string(monkeypatch):
     """ask() should return the text content from Claude's response."""
     from pipeline import ClaudeClient, Config
 
-    config = Config()
-    client = ClaudeClient(config)
-
     # Mock the Anthropic API call
     class FakeContent:
         text = "Hello from Claude"
@@ -36,7 +34,10 @@ def test_claude_client_ask_returns_string(monkeypatch):
         def __init__(self, **kwargs):
             self.messages = FakeMessages()
 
-    monkeypatch.setattr("pipeline.anthropic.Anthropic", FakeAnthropic)
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+
+    config = Config()
+    client = ClaudeClient(config)
 
     result = client.ask("You are helpful.", "Say hello")
     assert result == "Hello from Claude"
@@ -46,9 +47,6 @@ def test_claude_client_ask_returns_string(monkeypatch):
 def test_claude_client_ask_json_parses_response(monkeypatch):
     """ask_json() should parse JSON from Claude's response."""
     from pipeline import ClaudeClient, Config
-
-    config = Config()
-    client = ClaudeClient(config)
 
     class FakeContent:
         text = '{"name": "Ryan", "skills": ["Python", "AWS"]}'
@@ -64,7 +62,10 @@ def test_claude_client_ask_json_parses_response(monkeypatch):
         def __init__(self, **kwargs):
             self.messages = FakeMessages()
 
-    monkeypatch.setattr("pipeline.anthropic.Anthropic", FakeAnthropic)
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+
+    config = Config()
+    client = ClaudeClient(config)
 
     result = client.ask_json("Parse this.", "Give me JSON")
     assert result["name"] == "Ryan"
@@ -74,9 +75,6 @@ def test_claude_client_ask_json_parses_response(monkeypatch):
 def test_claude_client_ask_json_strips_markdown_fences(monkeypatch):
     """ask_json() should handle responses wrapped in ```json fences."""
     from pipeline import ClaudeClient, Config
-
-    config = Config()
-    client = ClaudeClient(config)
 
     class FakeContent:
         text = '```json\n{"status": "ok"}\n```'
@@ -92,7 +90,10 @@ def test_claude_client_ask_json_strips_markdown_fences(monkeypatch):
         def __init__(self, **kwargs):
             self.messages = FakeMessages()
 
-    monkeypatch.setattr("pipeline.anthropic.Anthropic", FakeAnthropic)
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+
+    config = Config()
+    client = ClaudeClient(config)
 
     result = client.ask_json("Parse.", "JSON please")
     assert result["status"] == "ok"
