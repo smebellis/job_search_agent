@@ -90,3 +90,15 @@ class ClaudeClient:
 
         data = json.loads(text)
         return data
+
+
+@dataclass
+class ResumeProfile:
+    name: str = ""
+    title: str = ""
+    location: str = ""
+    skills: list = field(default_factory=list)
+    experience_years: int = 0
+    military_service: dict | None = None
+
+
