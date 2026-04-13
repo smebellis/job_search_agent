@@ -102,3 +102,17 @@ class ResumeProfile:
     military_service: dict | None = None
 
 
+class ResumeParser:
+    def __init__(self, claude: ClaudeClient) -> None:
+        self.claude = claude
+
+    def parse(self, resume_text: str) -> ResumeProfile:
+        # 1. Call self.claude.ask_json() with a system prompt and the resume text
+        # 2. Map the returned dict onto a ResumeProfile dataclass
+        # 3. Return the ResumeProfile
+        system = "You are a resume parser. Extract structured data from the resume. Return ONLY valid JSON with these fields: name, title, location, skills (list), experience_years (number), military_service (dict with branch and years, or null)."
+
+        result = self.claude.ask_json(system, resume_text)
+
+        return ResumeProfile(**result)
+
