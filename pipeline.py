@@ -116,3 +116,71 @@ class ResumeParser:
 
         return ResumeProfile(**result)
 
+
+@dataclass
+class Job:
+    title: str = ""
+    company: str = ""
+    location: str = ""
+    url: str = ""
+    source: str = ""
+    fit_score: int = 0
+    key_skills: list = field(default_factory=list)
+    description: str = ""
+
+
+class JobScorer:
+    def __init__(self, claude: ClaudeClient, config: Config) -> None:
+        self.claude = claude
+        self.config = config
+
+    def score(
+        self,
+        raw_jobs: list[dict[str, Any]],
+        resume: ResumeProfile,
+    ) -> list:
+        # 1. Build system prompt (tell Claude to score and return JSON)
+        # 2. Build user prompt (include resume + jobs)
+        # 3. scores = self.claude.ask_json(system, user)
+        # 4. Build Job objects for passing scores, filter + sort + cap
+        system = 'You are a expert resume ranker.  Given a list of job postings and a candidate resume. Score each roles out of 10 based on fit (role, responsibilities, skills, experience). The scoring criteria is role alignment, skills overlap, seniority match, experience requirements, location match. Return ONLY a valid JSON array like: [{"index": 0, fit_score": 7, "key_skills_matched": ["Python"]}]'
+
+        resume_info = {
+            "name": resume.name,
+            "skills": resume.skills,
+            "experience_years": resume.experience_years,
+            "location": resume.location,
+        }
+
+        user = f"Resume:\n{json.dumps(resume_info)}\n\nJobs:\n{json.dumps(raw_jobs)}"
+
+        scores = self.claude.ask_json(system, user)
+
+        passing_scores = [
+            s for s in scores if s["fit_score"] >= self.config.min_fit_score
+        ]
+
+        sorted_scores = sorted(
+            passing_scores,
+            key=lambda s: s["fit_score"],
+            reverse=True,
+        )
+        results = []
+
+        for score in sorted_scores:
+            raw = raw_jobs[score["index"]]
+            results.append(
+                Job(
+                    title=raw.get("title", ""),
+                    company=raw.get("company", ""),
+                    location=raw.get("location", ""),
+                    source=raw.get("source", ""),
+                    fit_score=score["fit_score"],
+                    key_skills=score.get("key_skills", []),
+                    description=raw.get("description_summary", ""),
+                ),
+            )
+
+        return results[: self.config.max_jobs]
+
+
