@@ -13,6 +13,7 @@ class Config:
     notion_token: str = ""
     default_location: str = "Denver, CO"
     min_fit_score: int = 7
+    min_relevance_score: int = 0
     max_jobs: int = 10
     model: str = "claude-sonnet-4-20250514"
 
@@ -184,3 +185,92 @@ class JobScorer:
         return results[: self.config.max_jobs]
 
 
+@dataclass
+class Contact:
+    name: str = ""
+    company: str = ""
+    title: str = ""
+    category: str = ""
+    relevance_score: int = 0
+    linkedin_url: str = ""
+    email: str = ""
+    branch: str = ""
+    connection_message: str = ""
+    priority: int = 0
+    notes: str = ""
+
+
+class ContactDiscoverer:
+    def __init__(self, claude: ClaudeClient, config: Config) -> None:
+        self.claude = claude
+        self.config = config
+
+    def discover(self, job: Job, resume: ResumeProfile) -> list:
+        system = 'You are a expert networking strategist. You will receive a job posting and a candidate profile.  Generate relevant contacts across four categories: Recuiter, Hiring Manager, Veteran, Peer. Return ONLY a valid JSON array like: [{"name": "", "company": "", "title": "", "category": "", "relevance_score": 0, "linkedin_url": "", "url": "", "email": "", "branch": "", "notes": ""}]'
+
+        job_info = {
+            "title": job.title,
+            "company": job.company,
+            "location": job.location,
+            "key_skills": job.key_skills,
+        }
+        contact_info = {
+            "name": resume.name,
+            "skills": resume.skills,
+            "experience_years": resume.experience_years,
+            "location": resume.location,
+            "branch": resume.military_service,
+        }
+        user = (
+            f"Job:\n{json.dumps(job_info)}\n\nCandidate:\n{json.dumps(contact_info)} "
+        )
+
+        has_military = resume.military_service is not None
+
+        if has_military:
+            category_order = {
+                "Veteran": 0,
+                "Hiring Manager": 1,
+                "Recruiter": 2,
+                "Peer": 3,
+            }
+        else:
+            category_order = {
+                "Hiring Manager": 0,
+                "Recruiter": 1,
+                "Peer": 2,
+                "Veteran": 3,
+            }
+
+        contacts = self.claude.ask_json(system, user)
+
+        relevant_contacts = [
+            c
+            for c in contacts
+            if c["relevance_score"] >= self.config.min_relevance_score
+        ]
+        sorted_contacts = sorted(
+            relevant_contacts,
+            key=lambda c: (category_order.get(c["category"], 4), -c["relevance_score"]),
+        )
+
+        results = []
+
+        for i, contact in enumerate(sorted_contacts):
+            results.append(
+                Contact(
+                    name=contact.get("name", ""),
+                    company=contact.get("company", ""),
+                    title=contact.get("title", ""),
+                    category=contact.get("category", ""),
+                    relevance_score=contact.get("relevance_score", ""),
+                    linkedin_url=contact.get("linked_url", ""),
+                    email=contact.get("email", ""),
+                    branch=contact.get("branch", ""),
+                    connection_message=contact.get("connection_message", ""),
+                    priority=i + 1,
+                    notes=contact.get("notes", ""),
+                ),
+            )
+
+        return results
