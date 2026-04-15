@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from enum import Enum
-from os import environ, getenv
+from os import getenv
 from typing import Any
 
 import anthropic
@@ -16,6 +16,7 @@ class Config:
     min_relevance_score: int = 0
     max_jobs: int = 10
     model: str = "claude-sonnet-4-20250514"
+    reslink_url: str = "[Reslink URL]"
 
     def __post_init__(self) -> None:
         self.anthropic_api_key: str = getenv("ANTHROPIC_API_KEY", "")
@@ -274,3 +275,42 @@ class ContactDiscoverer:
             )
 
         return results
+
+
+class MessageGenerator:
+    def __init__(self, claude: ClaudeClient, config: Config) -> None:
+        self.claude = claude
+        self.config = config
+
+    def generate(self, contacts: list[Contact], job: Job, resume: ResumeProfile):
+        system = f'You are a networking message writer and you are given a list of contacts, create a connection message that is unique to a person, if nothing unique can be found then do not return a message.  Return ONLY a valid JSON array like: [{{"index": 0, "message": ""}}]. For veterans: focus on shared military service. Do NOT mention the job title. Do Not include any URL. For hiring managers and recuiters: mention the role exists and highlight 1-2 skills, include this specific Reslink URL {self.config.reslink_url} add in the ResLink to the output. For Peers: focus on shared interests or background. Do NOT mention the job title or hiring.  All messages must be under 300 characters.'
+
+        contacts_data = [
+            {
+                "name": c.name,
+                "company": c.company,
+                "title": c.title,
+                "category": c.category,
+                "branch": c.branch,
+                "notes": c.notes,
+            }
+            for i, c in enumerate(contacts)
+        ]
+        job_info = {
+            "title": job.title,
+            "company": job.company,
+            "key_skills": job.key_skills,
+        }
+        resume_info = {
+            "name": resume.name,
+            "skills": resume.skills,
+            "military_service": resume.military_service,
+        }
+        user = f"Contacts:\n{json.dumps(contacts_data)}\n\nJob:\n{json.dumps(job_info)}\n\nResume:\n{json.dumps(resume_info)}"
+
+        results = self.claude.ask_json(system, user)
+
+        for idx, contact in enumerate(results):
+            contacts[idx].connection_message = contact["message"]
+
+        return contacts

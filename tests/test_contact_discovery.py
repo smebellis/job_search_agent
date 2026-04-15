@@ -4,7 +4,7 @@ import anthropic
 import pytest
 
 
-def test_contact_dataclass_has_required_fields():
+def test_contact_dataclass_has_required_fields() -> None:
     """Contact should have all expected fields with defaults."""
     from pipeline import Contact
 
@@ -22,7 +22,7 @@ def test_contact_dataclass_has_required_fields():
     assert contact.notes == ""
 
 
-def test_contact_stores_veteran_data():
+def test_contact_stores_veteran_data() -> None:
     """Contact should store military branch for veterans."""
     from pipeline import Contact
 
@@ -40,7 +40,7 @@ def test_contact_stores_veteran_data():
     assert "Gulf War" in contact.notes
 
 
-def test_contact_discoverer_returns_four_categories(monkeypatch):
+def test_contact_discoverer_returns_four_categories(monkeypatch) -> None:
     """ContactDiscoverer should return contacts across all 4 categories."""
     from pipeline import ClaudeClient, Config, ContactDiscoverer, Job, ResumeProfile
 
@@ -357,7 +357,7 @@ def test_contact_discoverer_no_veteran_boost_without_military(monkeypatch):
     assert contacts[0].category != "Veteran"
 
 
-def test_contact_discoverer_assigns_sequential_priorities(monkeypatch):
+def test_contact_discoverer_assigns_sequential_priorities(monkeypatch) -> None:
     """Each contact should get a sequential priority number starting at 1."""
     from pipeline import ClaudeClient, Config, ContactDiscoverer, Job, ResumeProfile
 
