@@ -5,6 +5,7 @@ from os import getenv
 from typing import Any
 
 import anthropic
+import notion_client
 
 
 @dataclass
@@ -17,6 +18,8 @@ class Config:
     max_jobs: int = 10
     model: str = "claude-sonnet-4-20250514"
     reslink_url: str = "[Reslink URL]"
+    notion_jobs_db = ""
+    notion_contacts_db = ""
 
     def __post_init__(self) -> None:
         self.anthropic_api_key: str = getenv("ANTHROPIC_API_KEY", "")
@@ -314,3 +317,56 @@ class MessageGenerator:
             contacts[idx].connection_message = contact["message"]
 
         return contacts
+
+
+class NotionWriter:
+    def __init__(self, config: Config):
+        self.config = config
+        if not config.notion_token:
+            self.client = None
+            self.enabled = False
+        else:
+            self.client = notion_client.Client(auth=config.notion_token)
+            self.enabled = True
+
+    def write_job(self, job: Job):
+        if not self.enabled:
+            return None
+        response = self.client.pages.create(
+            parent={"database_id": self.config.notion_jobs_db},
+            properties={
+                "Role": {"title": [{"text": {"content": job.title}}]},
+                "Company": {"rich_text": [{"text": {"content": job.company}}]},
+                "Fit Score": {"number": job.fit_score},
+                "Job URL": {"url": job.url},
+                "Source": {"select": {"name": job.source}},
+            },
+        )
+
+        return response["id"]
+
+    def write_contact(self, contact: Contact, title: str):
+        if not self.enabled:
+            return None
+        response = self.client.pages.create(
+            parent={"database_id": self.config.notion_contacts_db},
+            properties={
+                "Name": {"title": [{"text": {"content": contact.name}}]},
+                "Category": {"select": {"name": contact.category}},
+                "Relevance Score": {"number": contact.relevance_score},
+                "Email": {"email": contact.email},
+                "LinkedIn URL": {"url": contact.linkedin_url},
+                "Priority": {"number": contact.priority},
+                "Message Sent": {"checkbox": False},
+            },
+        )
+
+        return response["id"]
+
+    def update_job_status(self, id, status):
+        if not self.enabled:
+            return None
+        response = self.client.pages.update(
+            page_id=id,
+            properties={"Status": {"select": {"name": status}}},
+        )
