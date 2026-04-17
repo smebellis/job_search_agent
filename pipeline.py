@@ -370,3 +370,57 @@ class NotionWriter:
             page_id=id,
             properties={"Status": {"select": {"name": status}}},
         )
+
+
+class Pipeline:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        self.claude = ClaudeClient(config)
+        self.resume_parser = ResumeParser(self.claude)
+        self.job_scorer = JobScorer(self.claude, self.config)
+        self.contact_discoverer = ContactDiscoverer(self.claude, self.config)
+        self.message_generator = MessageGenerator(self.claude, self.config)
+        self.notion_writer = NotionWriter(self.config)
+        self.ctx = PipelineContext(state=PipelineState.IDLE)
+
+    def _transition(self, new_state) -> None:
+        self.ctx.state = new_state
+
+    def _run_contacts_pipeline(self) -> None:
+        try:
+            # Step 1: Transition to DISCOVER_CONTACTS state
+            # (call _transition with the right state)
+            self._transition(PipelineState.DISCOVER_CONTACTS)
+            # Step 2: Call contact_discoverer.discover() with what arguments?
+            # (hint: check what discover() needs)
+            contacts = self.contact_discoverer.discover(
+                self.ctx.target_job, self.ctx.resume
+            )
+
+            # Step 3: Store the results on self.ctx
+            self.ctx.contacts.extend(contacts)
+            # Step 4: Transition to GENERATE_MESSAGES
+            self._transition(PipelineState.GENERATE_MESSAGES)
+            # Step 5: Call message_generator.generate()
+            # (what arguments does it need? Look at the signature)
+            self.ctx.contacts = self.message_generator.generate(
+                self.ctx.contacts, self.ctx.target_job, self.ctx.resume
+            )
+
+            # Step 6: Transition to WRITE_NOTION
+            self._transition(PipelineState.WRITE_NOTION)
+            # Step 7: Call notion_writer to write the job and contacts
+            # (should use self.ctx.target_job and self.ctx.contacts)
+            self.notion_writer.write_job(self.ctx.target_job)
+
+            for _, contact in enumerate(self.ctx.contacts):
+                self.notion_writer.write_contact(contact, self.ctx.target_job.title)
+
+            # Step 8: Transition to COMPLETE
+            self._transition(PipelineState.COMPLETE)
+        except Exception as e:
+            # Transition to ERROR state
+            self._transition(PipelineState.ERROR)
+            # Append the error message to self.ctx.errors
+            # (hint: str(e) converts exception to string)
+            self.ctx.errors.append(str(e))
