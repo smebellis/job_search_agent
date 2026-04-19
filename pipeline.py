@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from os import getenv
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import anthropic
 import apify_client
@@ -85,6 +85,12 @@ class PipelineContext:
     resume: None = None
     target_job: None = None
     job_url: None = None
+
+
+@runtime_checkable
+class LLMClient(Protocol):
+    def ask(self, system: str, user: str) -> str: ...
+    def ask_json(self, system: str, user: str) -> dict: ...
 
 
 class ClaudeClient:
