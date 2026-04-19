@@ -1,21 +1,31 @@
 import json
 import logging
+import re
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from os import getenv
+from pathlib import Path
 from typing import Any
 
 import anthropic
+import apify_client
 import notion_client
 
 logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
+logger.setLevel(logging.INFO)  # Set the logger level
+handler = logging.StreamHandler(sys.stdout)  # Print to stdout
+formatter = logging.Formatter("%(message)s")  # Simple format
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 
 @dataclass
 class Config:
     anthropic_api_key: str = ""
     notion_token: str = ""
+    apify_token: str = ""
+    apify_linkedin_actor_id: str = "apify/linkedin-jobs-scraper"
     default_location: str = "Denver, CO"
     min_fit_score: int = 7
     min_relevance_score: int = 0
@@ -28,6 +38,7 @@ class Config:
     def __post_init__(self) -> None:
         self.anthropic_api_key: str = getenv("ANTHROPIC_API_KEY", "")
         self.notion_token: str = getenv("NOTION_TOKEN", "")
+        self.apify_token = getenv("APIFY_TOKEN", "")
         logger.debug(
             "Config loaded: anthropic_key_present=%s notion_token_present=%s model=%s",
             bool(self.anthropic_api_key),
@@ -154,6 +165,8 @@ class Job:
     location: str = ""
     url: str = ""
     source: str = ""
+    salary: str = ""
+    posted_date: str = ""
     fit_score: int = 0
     key_skills: list = field(default_factory=list)
     description: str = ""
@@ -251,7 +264,9 @@ class ContactDiscoverer:
         self.config = config
 
     def discover(self, job: Job, resume: ResumeProfile) -> list:
-        logger.info("ContactDiscoverer.discover() job=%r company=%r", job.title, job.company)
+        logger.info(
+            "ContactDiscoverer.discover() job=%r company=%r", job.title, job.company
+        )
         system = 'You are a expert networking strategist. You will receive a job posting and a candidate profile.  Generate relevant contacts across four categories: Recuiter, Hiring Manager, Veteran, Peer. Return ONLY a valid JSON array like: [{"name": "", "company": "", "title": "", "category": "", "relevance_score": 0, "linkedin_url": "", "url": "", "email": "", "branch": "", "notes": ""}]'
 
         job_info = {
@@ -327,10 +342,13 @@ class ContactDiscoverer:
 
         if not results:
             logger.warning(
-                "ContactDiscoverer.discover() all contacts filtered out for job=%r", job.title
+                "ContactDiscoverer.discover() all contacts filtered out for job=%r",
+                job.title,
             )
         else:
-            logger.info("ContactDiscoverer.discover() returning %d contacts", len(results))
+            logger.info(
+                "ContactDiscoverer.discover() returning %d contacts", len(results)
+            )
 
         return results
 
@@ -341,7 +359,9 @@ class MessageGenerator:
         self.config = config
 
     def generate(self, contacts: list[Contact], job: Job, resume: ResumeProfile):
-        logger.info("MessageGenerator.generate() contacts=%d job=%r", len(contacts), job.title)
+        logger.info(
+            "MessageGenerator.generate() contacts=%d job=%r", len(contacts), job.title
+        )
         system = f'You are a networking message writer and you are given a list of contacts, create a connection message that is unique to a person, if nothing unique can be found then do not return a message.  Return ONLY a valid JSON array like: [{{"index": 0, "message": ""}}]. For veterans: focus on shared military service. Do NOT mention the job title. Do Not include any URL. For hiring managers and recuiters: mention the role exists and highlight 1-2 skills, include this specific Reslink URL {self.config.reslink_url} add in the ResLink to the output. For Peers: focus on shared interests or background. Do NOT mention the job title or hiring.  All messages must be under 300 characters.'
 
         contacts_data = [
@@ -420,7 +440,9 @@ class NotionWriter:
         if not self.enabled:
             return None
         logger.debug(
-            "NotionWriter.write_contact() name=%r priority=%d", contact.name, contact.priority
+            "NotionWriter.write_contact() name=%r priority=%d",
+            contact.name,
+            contact.priority,
         )
         response = self.client.pages.create(
             parent={"database_id": self.config.notion_contacts_db},
@@ -440,11 +462,63 @@ class NotionWriter:
     def update_job_status(self, id, status):
         if not self.enabled:
             return None
-        logger.debug("NotionWriter.update_job_status() page_id=%s status=%r", id, status)
+        logger.debug(
+            "NotionWriter.update_job_status() page_id=%s status=%r", id, status
+        )
         response = self.client.pages.update(
             page_id=id,
             properties={"Status": {"select": {"name": status}}},
         )
+
+
+class JobSearcher:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        if not config.apify_token:
+            self.client = None
+            self.enabled = False
+        else:
+            self.client = apify_client.ApifyClient(config.apify_token)
+            self.enabled = True
+        logger.info("Apify enabled=%s", self.enabled)
+
+    def search(self, linkedin_url: str) -> Job:
+        """
+        Fetch job details from LinkedIn URL using Apify scraper.
+
+        Args:
+            job_url: LinkedIn job posting URL
+
+        Returns:
+            Job object with scraped details, or None if token missing or no results
+
+        """
+        if not self.enabled:
+            return None
+        logger.info("JobSearcher.search() fetching %s", linkedin_url)
+        actor = self.client.actor(self.config.apify_linkedin_actor_id)
+
+        run = actor.call(
+            run_input={
+                "jobUrl": linkedin_url,
+            }
+        )
+        dataset_id = run["defaultDatasetId"]
+        dataset = self.client.dataset(dataset_id)
+        items = list(dataset.iterate_items())
+        if len(items) == 0:
+            return None
+        item = items[0]
+
+        job = Job(url=linkedin_url, source="LinkedIn")
+        job.title = item["title"]
+        job.company = item["companyName"]
+        job.location = item["location"]
+        job.description = item["descriptionText"]
+        job.salary = item["salary"]
+        job.posted_date = item["postedAt"]
+        logger.info("JobSearcher.search() found job: %s at %s", job.title, job.company)
+        return job
 
 
 class Pipeline:
@@ -456,6 +530,7 @@ class Pipeline:
         self.job_scorer = JobScorer(self.claude, self.config)
         self.contact_discoverer = ContactDiscoverer(self.claude, self.config)
         self.message_generator = MessageGenerator(self.claude, self.config)
+        self.job_searcher = JobSearcher(config)
         self.notion_writer = NotionWriter(self.config)
         self.ctx = PipelineContext(state=PipelineState.IDLE)
         logger.info("Pipeline ready")
@@ -490,3 +565,96 @@ class Pipeline:
             logger.exception("_run_contacts_pipeline() unhandled exception")
             self._transition(PipelineState.ERROR)
             self.ctx.errors.append(str(e))
+
+
+def parse_arguments(argv):
+    """
+    Parse --job and --resume from command line.
+
+    Args:
+        argv: list like ['pipeline.py', '--job=URL', '--resume=FILE']
+
+    Returns:
+        dict with 'job' and 'resume' keys
+
+    Raises:
+        ValueError: if validation fails
+
+    """
+    args = {}
+    pattern = r"https://.*linkedin\.com/jobs/view/\d+/?$"
+
+    for item in argv[1:]:
+        arg1, arg2 = item.split("=")
+        arg1 = arg1.replace("--", "")
+        if arg1 == "job" and not re.match(pattern, arg2):
+            raise ValueError("--job must be a valid URL")
+        if arg1 == "resume":
+            p = Path(arg2)
+            if not p.exists():
+                raise ValueError("Resume file not found")
+        args[arg1] = arg2
+
+    if "job" not in args:
+        raise ValueError("--job is required")
+    if "resume" not in args:
+        raise ValueError("--resume is required")
+
+    return args
+
+
+def load_resume(filepath: Path) -> str:
+    """
+    Load resume text from file.
+
+    Args:
+        filepath: path to resume file
+
+    Returns:
+        str: resume content
+
+    Raises:
+        FileNotFoundError: if file doesn't exist
+
+    """
+    try:
+        with Path.open(filepath, "r") as f:
+            return f.read()
+    except FileNotFoundError as err:
+        msg = f"Resume file not found: {filepath}"
+        raise FileNotFoundError(msg) from err
+
+
+def main() -> None:
+    try:
+        args = parse_arguments(sys.argv)
+        resume_text = load_resume(args["resume"])
+
+        config = Config()
+        missing = config.validate()
+        # if missing:
+        #     raise ValueError(f"Missing environment Variable: {', '.join(missing)}")
+        pipeline = Pipeline(config)
+        parser = ResumeParser(pipeline.claude)
+        pipeline._transition(PipelineState.PARSE_RESUME)
+        print("PARSE_RESUME")
+        profile = parser.parse(resume_text)
+        pipeline.ctx.job_url = args["job"]
+        pipeline.ctx.resume = profile
+        pipeline.ctx.target_job = pipeline.job_searcher.search(args["job"])
+        if pipeline.ctx.target_job is None:
+            # Graceful fallback
+            pipeline.ctx.target_job = Job(url=args["job"])
+
+        pipeline._run_contacts_pipeline()
+
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Pipeline failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
