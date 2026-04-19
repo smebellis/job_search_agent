@@ -10,6 +10,7 @@ from typing import Any
 
 import anthropic
 import apify_client
+import fitz
 import notion_client
 
 logger = logging.getLogger(__name__)
@@ -604,25 +605,19 @@ def parse_arguments(argv):
 
 
 def load_resume(filepath: Path) -> str:
-    """
-    Load resume text from file.
-
-    Args:
-        filepath: path to resume file
-
-    Returns:
-        str: resume content
-
-    Raises:
-        FileNotFoundError: if file doesn't exist
-
-    """
-    try:
-        with Path.open(filepath, "r") as f:
-            return f.read()
-    except FileNotFoundError as err:
-        msg = f"Resume file not found: {filepath}"
-        raise FileNotFoundError(msg) from err
+    filepath = Path(filepath)
+    if not filepath.exists():
+        raise FileNotFoundError(f"Resume file not found: {filepath}")
+    suffix = filepath.suffix.lower()
+    if suffix == ".txt":
+        return filepath.read_text()
+    if suffix == ".pdf":
+        doc = fitz.open(filepath)
+        try:
+            return "".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+    raise ValueError(f"Unsupported resume format: {suffix}")
 
 
 def main() -> None:

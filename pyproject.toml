@@ -12,5 +12,6 @@ dependencies = [
     "apify-client>=2.5.0",
     "mistune>=3.2.0",
     "notion-client>=3.0.0",
+    "pymupdf>=1.27.2.2",
     "pytest>=9.0.3",
 ]
