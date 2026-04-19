@@ -116,3 +116,31 @@ def test_resume_parser_sends_resume_text_to_claude(monkeypatch):
 
     user_message = captured_kwargs["messages"][0]["content"]
     assert "THIS IS MY RESUME TEXT" in user_message
+
+
+def test_resume_parser_ignores_extra_keys_from_llm(monkeypatch):
+    """parse() must not crash when LLM returns unexpected extra fields."""
+    import json
+    import anthropic
+    from pipeline import Config, ClaudeClient, ResumeParser
+
+    response_with_extras = {
+        "name": "Ryan", "title": "Lead", "location": "Denver",
+        "skills": ["Python"], "experience_years": 5, "military_service": None,
+        "unexpected_field": "some value",  # extra key LLM hallucinated
+    }
+
+    class FakeContent:
+        text = json.dumps(response_with_extras)
+    class FakeResponse:
+        content = [FakeContent()]
+    class FakeMessages:
+        def create(self, **kwargs): return FakeResponse()
+    class FakeAnthropic:
+        def __init__(self, **kwargs): self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+    config = Config()
+    parser = ResumeParser(ClaudeClient(config))
+    profile = parser.parse("Ryan Ellis resume text")
+    assert profile.name == "Ryan"

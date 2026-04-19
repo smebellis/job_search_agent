@@ -14,11 +14,11 @@ import fitz
 import notion_client
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Set the logger level
-handler = logging.StreamHandler(sys.stdout)  # Print to stdout
-formatter = logging.Formatter("%(message)s")  # Simple format
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
 
 
 @dataclass
@@ -26,15 +26,15 @@ class Config:
     anthropic_api_key: str = ""
     notion_token: str = ""
     apify_token: str = ""
-    apify_linkedin_actor_id: str = "apify/linkedin-jobs-scraper"
+    apify_linkedin_actor_id: str = "curious_coder/linkedin-jobs-scraper"
     default_location: str = "Denver, CO"
     min_fit_score: int = 7
     min_relevance_score: int = 0
     max_jobs: int = 10
     model: str = "claude-sonnet-4-20250514"
     reslink_url: str = "[Reslink URL]"
-    notion_jobs_db = ""
-    notion_contacts_db = ""
+    notion_jobs_db: str = "5135bb9f-2ad7-4400-b42a-b07d35a37d43"
+    notion_contacts_db: str = "7e736104-656e-470c-b301-7bcd3c8dee82"
 
     def __post_init__(self) -> None:
         self.anthropic_api_key: str = getenv("ANTHROPIC_API_KEY", "")
@@ -90,7 +90,7 @@ class PipelineContext:
 @runtime_checkable
 class LLMClient(Protocol):
     def ask(self, system: str, user: str) -> str: ...
-    def ask_json(self, system: str, user: str) -> dict: ...
+    def ask_json(self, system: str, user: str) -> Any: ...
 
 
 class ClaudeClient:
@@ -115,7 +115,7 @@ class ClaudeClient:
 
         return response.content[0].text
 
-    def ask_json(self, system: str, user: str) -> dict:
+    def ask_json(self, system: str, user: str) -> Any:
         raw = self.ask(system, user)
 
         text = raw.strip()
@@ -154,7 +154,8 @@ class ResumeParser:
 
         result = self.claude.ask_json(system, resume_text)
 
-        profile = ResumeProfile(**result)
+        known = {f.name for f in __import__("dataclasses").fields(ResumeProfile)}
+        profile = ResumeProfile(**{k: v for k, v in result.items() if k in known})
         logger.info(
             "ResumeParser.parse() complete name=%r skills=%d experience_years=%d military=%s",
             profile.name,
@@ -236,7 +237,7 @@ class JobScorer:
                     location=raw.get("location", ""),
                     source=raw.get("source", ""),
                     fit_score=score["fit_score"],
-                    key_skills=score.get("key_skills", []),
+                    key_skills=score.get("key_skills_matched", []),
                     description=raw.get("description_summary", ""),
                 ),
             )
@@ -274,7 +275,7 @@ class ContactDiscoverer:
         logger.info(
             "ContactDiscoverer.discover() job=%r company=%r", job.title, job.company
         )
-        system = 'You are a expert networking strategist. You will receive a job posting and a candidate profile.  Generate relevant contacts across four categories: Recuiter, Hiring Manager, Veteran, Peer. Return ONLY a valid JSON array like: [{"name": "", "company": "", "title": "", "category": "", "relevance_score": 0, "linkedin_url": "", "url": "", "email": "", "branch": "", "notes": ""}]'
+        system = 'You are a expert networking strategist. You will receive a job posting and a candidate profile.  Generate relevant contacts across four categories: Recruiter, Hiring Manager, Veteran, Peer. Return ONLY a valid JSON array like: [{"name": "", "company": "", "title": "", "category": "", "relevance_score": 0, "linkedin_url": "", "email": "", "branch": "", "notes": ""}]'
 
         job_info = {
             "title": job.title,
@@ -338,7 +339,7 @@ class ContactDiscoverer:
                     title=contact.get("title", ""),
                     category=contact.get("category", ""),
                     relevance_score=contact.get("relevance_score", ""),
-                    linkedin_url=contact.get("linked_url", ""),
+                    linkedin_url=contact.get("linkedin_url", ""),
                     email=contact.get("email", ""),
                     branch=contact.get("branch", ""),
                     connection_message=contact.get("connection_message", ""),
@@ -397,7 +398,8 @@ class MessageGenerator:
         results = self.claude.ask_json(system, user)
 
         for idx, contact in enumerate(results):
-            contacts[idx].connection_message = contact["message"]
+            if idx < len(contacts):
+                contacts[idx].connection_message = contact.get("message", "")
 
         assigned = sum(1 for c in contacts if c.connection_message)
         logger.info("MessageGenerator.generate() messages_assigned=%d", assigned)
@@ -466,16 +468,17 @@ class NotionWriter:
         logger.debug("NotionWriter.write_contact() created page_id=%s", response["id"])
         return response["id"]
 
-    def update_job_status(self, id, status):
+    def update_job_status(self, page_id: str, status: str):
         if not self.enabled:
             return None
         logger.debug(
-            "NotionWriter.update_job_status() page_id=%s status=%r", id, status
+            "NotionWriter.update_job_status() page_id=%s status=%r", page_id, status
         )
         response = self.client.pages.update(
-            page_id=id,
+            page_id=page_id,
             properties={"Status": {"select": {"name": status}}},
         )
+        return response["id"]
 
 
 class JobSearcher:
@@ -518,12 +521,12 @@ class JobSearcher:
         item = items[0]
 
         job = Job(url=linkedin_url, source="LinkedIn")
-        job.title = item["title"]
-        job.company = item["companyName"]
-        job.location = item["location"]
-        job.description = item["descriptionText"]
-        job.salary = item["salary"]
-        job.posted_date = item["postedAt"]
+        job.title = item.get("title", "")
+        job.company = item.get("companyName", "")
+        job.location = item.get("location", "")
+        job.description = item.get("descriptionText", "")
+        job.salary = item.get("salary", "")
+        job.posted_date = item.get("postedAt", "")
         logger.info("JobSearcher.search() found job: %s at %s", job.title, job.company)
         return job
 
@@ -592,7 +595,7 @@ def parse_arguments(argv):
     pattern = r"https://.*linkedin\.com/jobs/view/\d+/?$"
 
     for item in argv[1:]:
-        arg1, arg2 = item.split("=")
+        arg1, arg2 = item.split("=", 1)
         arg1 = arg1.replace("--", "")
         if arg1 == "job" and not re.match(pattern, arg2):
             raise ValueError("--job must be a valid URL")
@@ -633,13 +636,12 @@ def main() -> None:
 
         config = Config()
         missing = config.validate()
-        # if missing:
-        #     raise ValueError(f"Missing environment Variable: {', '.join(missing)}")
+        if missing:
+            raise ValueError(f"Missing environment variables: {', '.join(missing)}")
         pipeline = Pipeline(config)
-        parser = ResumeParser(pipeline.claude)
         pipeline._transition(PipelineState.PARSE_RESUME)
         print("PARSE_RESUME")
-        profile = parser.parse(resume_text)
+        profile = pipeline.resume_parser.parse(resume_text)
         pipeline.ctx.job_url = args["job"]
         pipeline.ctx.resume = profile
         pipeline.ctx.target_job = pipeline.job_searcher.search(args["job"])

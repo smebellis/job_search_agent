@@ -193,3 +193,30 @@ def test_veteran_messages_no_reslink(monkeypatch):
     config.reslink_url = "https://reslink.io/ryan"
     claude = ClaudeClient(config)
     generator = MessageGenerator(claude, config)
+
+
+def test_message_generator_handles_missing_message_key(monkeypatch):
+    """generate() must not KeyError when LLM omits the 'message' key for an entry."""
+    import json
+    import anthropic
+    from pipeline import Config, ClaudeClient, MessageGenerator, Contact, Job, ResumeProfile
+
+    # LLM returns entry without "message" key (it was told to omit if nothing unique)
+    fake_response = [{"index": 0}]
+
+    class FakeContent:
+        text = json.dumps(fake_response)
+    class FakeResponse:
+        content = [FakeContent()]
+    class FakeMessages:
+        def create(self, **kwargs): return FakeResponse()
+    class FakeAnthropic:
+        def __init__(self, **kwargs): self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+    config = Config()
+    config.reslink_url = "https://reslink.io/ryan"
+    generator = MessageGenerator(ClaudeClient(config), config)
+    contacts = [Contact(name="Alice", category="Recruiter", company="Acme")]
+    result = generator.generate(contacts, Job(title="AI Lead", company="Acme"), ResumeProfile())
+    assert result[0].connection_message == ""

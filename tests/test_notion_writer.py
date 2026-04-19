@@ -142,3 +142,23 @@ def test_notion_writer_skips_when_no_token():
     assert writer.write_job(job) is None
     assert writer.write_contact(contact, "Test Role at Test Co") is None
     assert writer.update_job_status("fake-id", "Queued") is None
+
+
+def test_notion_writer_update_status_returns_page_id(monkeypatch):
+    """update_job_status must return the page ID when enabled, consistent with write_job."""
+    import notion_client
+    from pipeline import Config, NotionWriter
+
+    class FakePages:
+        def create(self, **kwargs): return {"id": "fake-id"}
+        def update(self, **kwargs): return {"id": kwargs["page_id"]}
+
+    class FakeNotionClient:
+        def __init__(self, **kwargs): self.pages = FakePages()
+
+    monkeypatch.setattr(notion_client, "Client", FakeNotionClient)
+    config = Config()
+    config.notion_token = "ntn_fake"
+    writer = NotionWriter(config)
+    result = writer.update_job_status("page-abc", "Messages Drafted")
+    assert result == "page-abc"

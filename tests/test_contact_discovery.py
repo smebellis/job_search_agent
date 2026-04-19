@@ -425,3 +425,47 @@ def test_contact_discoverer_assigns_sequential_priorities(monkeypatch) -> None:
 
     priorities = [c.priority for c in contacts]
     assert priorities == [1, 2, 3]
+
+
+def test_contact_discoverer_preserves_linkedin_url(monkeypatch):
+    """linkedin_url field must be populated from the LLM response."""
+    import json
+    import anthropic
+    from pipeline import Config, ClaudeClient, ContactDiscoverer, Job, ResumeProfile
+
+    fake_contacts = [
+        {"name": "Alice", "title": "Director", "company": "Acme",
+         "category": "Hiring Manager", "relevance_score": 9,
+         "linkedin_url": "https://linkedin.com/in/alice", "email": "",
+         "branch": "", "notes": ""},
+    ]
+
+    class FakeContent:
+        text = json.dumps(fake_contacts)
+    class FakeResponse:
+        content = [FakeContent()]
+    class FakeMessages:
+        def create(self, **kwargs): return FakeResponse()
+    class FakeAnthropic:
+        def __init__(self, **kwargs): self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+    config = Config()
+    config.min_relevance_score = 7
+    discoverer = ContactDiscoverer(ClaudeClient(config), config)
+    contacts = discoverer.discover(
+        Job(title="AI Lead", company="Acme", location="Denver"),
+        ResumeProfile(name="Ryan", skills=["Python"]),
+    )
+    assert contacts[0].linkedin_url == "https://linkedin.com/in/alice"
+
+
+def test_contact_discoverer_system_prompt_spells_recruiter_correctly():
+    """System prompt must spell 'Recruiter' correctly so LLM uses the right category."""
+    import pipeline
+    discoverer_src = pipeline.ContactDiscoverer.__init__.__qualname__
+    # Read the system prompt from the class method source
+    import inspect
+    src = inspect.getsource(pipeline.ContactDiscoverer.discover)
+    assert "Recuiter" not in src, "Typo 'Recuiter' found in ContactDiscoverer system prompt"
+    assert "Recruiter" in src

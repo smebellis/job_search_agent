@@ -48,3 +48,12 @@ def test_config_has_sensible_defaults():
     assert config.min_fit_score == 7
     assert config.max_jobs == 10
     assert config.model == "claude-sonnet-4-20250514"
+
+
+def test_config_notion_db_ids_are_dataclass_fields():
+    """notion_jobs_db and notion_contacts_db must be proper annotated dataclass fields."""
+    from pipeline import Config
+    import dataclasses
+    field_names = {f.name for f in dataclasses.fields(Config)}
+    assert "notion_jobs_db" in field_names, "notion_jobs_db is not a dataclass field"
+    assert "notion_contacts_db" in field_names, "notion_contacts_db is not a dataclass field"

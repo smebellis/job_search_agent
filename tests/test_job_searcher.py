@@ -148,3 +148,34 @@ def test_job_searcher_handles_empty_results(monkeypatch):
 
     result = searcher.search("https://www.linkedin.com/jobs/view/999")
     assert result is None
+
+def test_job_searcher_handles_missing_fields_gracefully(monkeypatch):
+    """search() must not raise KeyError when Apify response is missing optional fields."""
+    import apify_client
+    from pipeline import Config, JobSearcher
+
+    class FakeDataset:
+        def iterate_items(self):
+            # Missing salary, postedAt, descriptionText
+            yield {"title": "AI Lead", "companyName": "Acme", "location": "Denver"}
+
+    class FakeRun:
+        defaultDatasetId = "ds-123"
+        def __getitem__(self, key): return "ds-123"
+
+    class FakeActor:
+        def call(self, **kwargs): return FakeRun()
+
+    class FakeApify:
+        def __init__(self, token): pass
+        def actor(self, name): return FakeActor()
+        def dataset(self, id): return FakeDataset()
+
+    monkeypatch.setattr(apify_client, "ApifyClient", FakeApify)
+    config = Config()
+    config.apify_token = "fake-token"
+    searcher = JobSearcher(config)
+    job = searcher.search("https://linkedin.com/jobs/view/123")
+    assert job.title == "AI Lead"
+    assert job.salary == ""
+    assert job.description == ""

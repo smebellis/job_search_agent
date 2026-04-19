@@ -218,3 +218,30 @@ def test_job_scorer_respects_max_jobs(monkeypatch):
     results = scorer.score(raw_jobs, resume)
 
     assert len(results) == 3
+
+
+def test_job_scorer_populates_key_skills_from_matched(monkeypatch):
+    """Job.key_skills must be populated from key_skills_matched in the LLM response."""
+    import json
+    import anthropic
+    from pipeline import Config, ClaudeClient, JobScorer, ResumeProfile
+
+    scores_response = [{"index": 0, "fit_score": 9, "key_skills_matched": ["Python", "AWS"]}]
+
+    class FakeContent:
+        text = json.dumps(scores_response)
+    class FakeResponse:
+        content = [FakeContent()]
+    class FakeMessages:
+        def create(self, **kwargs): return FakeResponse()
+    class FakeAnthropic:
+        def __init__(self, **kwargs): self.messages = FakeMessages()
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+    config = Config()
+    config.min_fit_score = 7
+    scorer = JobScorer(ClaudeClient(config), config)
+    raw_jobs = [{"title": "AI Eng", "company": "Acme", "location": "Denver",
+                 "source": "LinkedIn", "description_summary": ""}]
+    results = scorer.score(raw_jobs, ResumeProfile(name="Ryan", skills=["Python", "AWS"]))
+    assert results[0].key_skills == ["Python", "AWS"]

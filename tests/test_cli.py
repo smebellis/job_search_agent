@@ -3,35 +3,7 @@ import json
 import anthropic
 import pytest
 
-
-class FakeContent:
-    def __init__(self, text):
-        self.text = text
-
-
-class FakeResponse:
-    def __init__(self, text):
-        self.content = [FakeContent(text)]
-
-
-class FakeMessages:
-    def __init__(self):
-        self.responses = []
-        self.call_count = 0
-
-    def add_response(self, text):
-        self.responses.append(text)
-
-    def create(self, **kwargs):
-        response = FakeResponse(self.responses[self.call_count])
-        self.call_count += 1
-        return response
-
-
-class FakeAnthropic:
-    def __init__(self, **kwargs):
-        self.messages = FakeMessages()
-
+from fakes import FakeAnthropic
 
 
 
@@ -104,19 +76,24 @@ def test_cli_validates_resume_file_exists_with_real_file(tmp_path):
     assert args["resume"] == str(resume_file)
 
 
-def test_cli_loads_resume_content():
-    """CLI should read and return resume file content"""
+def test_cli_loads_resume_content(tmp_path):
+    """load_resume should return the file's text content."""
     from pipeline import load_resume
 
-    resume_content = load_resume("./test_resume.txt")
+    f = tmp_path / "resume.txt"
+    f.write_text("Ryan Ellis\nLead AI Engineer")
+    resume_content = load_resume(f)
     assert isinstance(resume_content, str)
-    assert len(resume_content) > 0
+    assert "Ryan Ellis" in resume_content
 
 
 def test_cli_main_initializes_pipeline(monkeypatch, tmp_path):
     """main() should create Config, Pipeline, and run it"""
     import anthropic
     import notion_client
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+    monkeypatch.setenv("NOTION_TOKEN", "ntn_fake")
 
     # Setup fake resume file
     resume_file = tmp_path / "resume.txt"
@@ -170,6 +147,9 @@ def test_cli_prints_progress(monkeypatch, tmp_path, capsys):
     import anthropic
     import notion_client
 
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
+    monkeypatch.setenv("NOTION_TOKEN", "ntn_fake")
+
     resume_file = tmp_path / "resume.txt"
     resume_file.write_text("Name: Alice\nSkills: Python")
 
@@ -214,3 +194,17 @@ def test_cli_prints_progress(monkeypatch, tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "PARSE_RESUME" in captured.out or "parse" in captured.out.lower()
+
+
+def test_cli_handles_equals_sign_in_resume_path(tmp_path):
+    """parse_arguments must not crash when the resume path contains an = character."""
+    from pipeline import parse_arguments
+
+    resume_file = tmp_path / "my=resume.txt"
+    resume_file.write_text("resume content")
+    args = parse_arguments([
+        "pipeline.py",
+        "--job=https://linkedin.com/jobs/view/123",
+        f"--resume={str(resume_file)}",
+    ])
+    assert args["resume"] == str(resume_file)
