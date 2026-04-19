@@ -32,6 +32,7 @@ Everything lives in a single file: `pipeline.py`. The pattern is dependency inje
 ### Data flow
 
 ```
+resume file → load_resume → resume text
 resume text → ResumeParser → ResumeProfile
 raw job dicts → JobScorer → list[Job]
 Job + ResumeProfile → ContactDiscoverer → list[Contact]
@@ -47,6 +48,8 @@ All AI calls go through `ClaudeClient`, which wraps the Anthropic SDK. `ask()` r
 
 ### Key design decisions
 
+- **`load_resume(filepath)`** accepts `.txt` (plain read) or `.pdf` (via `pymupdf`/`fitz`). Raises `FileNotFoundError` for missing files and `ValueError` for unsupported extensions. The module-level `fitz` import is used so tests can monkeypatch `pipeline.fitz`.
+- **`JobSearcher`** scrapes LinkedIn via the Apify API. Requires `APIFY_API_TOKEN` env var.
 - **`ClaudeClient.ask_json()`** strips ` ```json ` fences before parsing — Claude sometimes wraps JSON in markdown code blocks.
 - **`ContactDiscoverer`** applies veteran priority boosting: when `resume.military_service is not None`, the sort order puts `"Veteran"` contacts first; otherwise hiring manager goes first.
 - **`NotionWriter`** degrades gracefully — if `notion_token` is empty, `self.enabled = False` and all write methods return `None` silently. Tests rely on this to skip Notion calls.
@@ -62,3 +65,20 @@ All AI calls go through `ClaudeClient`, which wraps the Anthropic SDK. `ask()` r
 All tests mock `anthropic.Anthropic` via `monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)`. Use `import anthropic` (not `from anthropic import Anthropic`) so the patch is looked up at call time. The `FakeMessages` class in `test_pipeline.py` supports sequenced multi-call responses via `add_response()`.
 
 When testing `NotionWriter`, set `config.notion_token = ""` to disable it or monkeypatch `notion_client.Client`.
+
+When testing `load_resume` with a PDF, monkeypatch `pipeline.fitz` with a fake module that provides `open()`.
+
+## Current status (2026-04-19)
+
+**Implemented and tested:**
+- `load_resume` — txt + PDF loading, error handling (66 passing, 2 failing in `test_cli.py`)
+- `ResumeParser`, `JobScorer`, `ContactDiscoverer`, `MessageGenerator`, `NotionWriter`
+- `Pipeline` state machine
+- `JobSearcher` — Apify/LinkedIn scraping
+
+**Known failures:**
+- `tests/test_cli.py` — 2 tests fail with `NameError: name 'FakeAnthropic'`; `FakeAnthropic` is not imported/defined in that test module. Needs fix.
+
+**What's missing:**
+- End-to-end integration test
+- CLI entrypoint wired to `load_resume` + full pipeline run
